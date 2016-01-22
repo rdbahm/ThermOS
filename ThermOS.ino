@@ -56,6 +56,9 @@ void loop() {
   
   if(target_temp != last_target_temp)
   {
+	//TODO: This is pretty naiive. Should work in theory but because one of the major problems...
+	//...with the knob-style thermostats is they're horrendously inconsistent, this will result...
+	//...in horrendously inconsistent room temperatures.
    setFurnace(target_temp);
   }
   
