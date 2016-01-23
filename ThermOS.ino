@@ -1,16 +1,17 @@
 //#define debug true
 
 //Thermostat with RTC and Thermostat, both on I2C bus.
+//Requires RollingAverage library from www.github.com/rdbahm/rollingaverage
 
 #include <Wire.h>
 #include <Servo.h>
-#include <RTClib.h>
+#include "RTClib.h"
 #include <RollingAverage.h>
 
 /****** CONFIGURATION *******/
 
 //Hardware definitions
-const int i2c_address_thermomoeter = 0x48;
+const int i2c_address_thermometer = 0x48;
 const int servo_pin = 9;
 
 //Temperature config
@@ -57,49 +58,50 @@ void setup() {
 }
 
 void loop() {
-  byte current_mode = 0; //0 wake, 1 away, 2 return, 3 sleep, 4 error.
+  byte current_mode = 0; //0 wake, 1 away, 2 return, 3 sleep.
   byte next_mode = 1;
   boolean is_mode_preheat = false; //Set to true if we need to preheat the room to reach the temperature in time.
   boolean is_mode_override = false; //Set to true if the mode has been overridden. (For future use: Button?)
+  int override_temp = 0; //Override temperatures take priority over mode until the next mode starts.
   int target_temp = 70;
   int last_target_temp = 70;
   float this_temp = 0;
-  int preheat_time=0; //Time, in minutes, it will take to heat to the next mode.
+  TimeSpan preheat_time = 0; //Time, in minutes, it will take to heat to the next mode.
   unsigned long int last_temp_update = 0;
   unsigned long int last_furnace_update = 0;
 
   while (true) {
     if ((millis() - last_furnace_update) >= furnace_update_interval) {
       last_furnace_update = millis();
-	  this_temp = Temperature.read();
+      this_temp = Temperature.read();
       DateTime now = RTC.now();
-      
-	  last_target_temp = target_temp;
-      
-	  current_mode = getMode(now);
-	  if(is_mode_preheat == true && current_mode == next_mode)
-	  {
-		//Disable preheat mode once we get to the mode we're preheating for.
-		  is_mode_preheat = false;
-	  }
-	  next_mode = getNextMode(current_mode);
-	  
-	  preheat_time = getTimeToHeat(getModeTemperature(next_mode),this_temp,degrees_per_minute);
-	  
-	  if(getMode(preheat_time + now) != current_mode && is_mode_preheat == true) {//!!! This will not work - fix once we have a real datetme lib.
-		is_mode_preheat = true;
-	  }
-	  
-	  if(is_mode_preheat == true)
-	  {
-		//If we're using the preheat function, get temperature from the next mode.
-		target_temp = getModeTemperature(next_mode);
-	  }
-	  else
-	  {
-		  //This codepath is normal - occurs if we're within a mode.
-		  target_temp = getModeTemperature(current_mode);
-	  }
+
+      last_target_temp = target_temp;
+
+      current_mode = getMode(now);
+      if (is_mode_preheat == true && current_mode == next_mode)
+      {
+        //Disable preheat mode once we get to the mode we're preheating for.
+        is_mode_preheat = false;
+      }
+      next_mode = getNextMode(current_mode);
+
+      preheat_time = getTimeToHeat(getModeTemperature(next_mode), this_temp, degrees_per_minute);
+
+      if (getMode(now + preheat_time) != current_mode && is_mode_preheat == true) {
+        is_mode_preheat = true;
+      }
+
+      if (is_mode_preheat == true)
+      {
+        //If we're using the preheat function, get temperature from the next mode.
+        target_temp = getModeTemperature(next_mode);
+      }
+      else
+      {
+        //This codepath is normal - occurs if we're within a mode.
+        target_temp = getModeTemperature(current_mode);
+      }
 
       if (target_temp != last_target_temp)
       {
@@ -121,15 +123,15 @@ void loop() {
 #endif
 
     } //End of furnace update.
-	
-    if ((millis() - last_temp_update) >= furnace_temp_interval) {
-      last_temp_update = millis;
+
+    if ((millis() - last_temp_update) >= temp_update_interval) {
+      last_temp_update = millis();
       Temperature.add(getTemperature()); //Add the current temperature to our rolling average.
     } //End of temperature update.
-  }
-}
+  } //End of program loop
+} //End of void loop
 
-int getTimeToHeat(int target, int current_temp, float heat_rate) {
+TimeSpan getTimeToHeat(int target, int current_temp, float heat_rate) {
   //Calculate how long it should take to heat from the current temperature to the target temperature based on the rate of heating.
   //RETURNS: Time in minutes.
   int temperature_difference = target - current_temp;
@@ -137,8 +139,9 @@ int getTimeToHeat(int target, int current_temp, float heat_rate) {
     return 0;
   }
   else {
-    float minutes = temperature_difference / heat_rate;
-    return minutes;
+    int minutes = temperature_difference / heat_rate;
+    TimeSpan timespan_output = TimeSpan(0, 0, minutes, 0);
+    return timespan_output;
   }
 }
 
@@ -154,16 +157,16 @@ int getModeTemperature(int mode) {
 }
 
 byte getNextMode(byte mode) {
-	byte output_mode = mode+1;
-	if (output_mode > 3) {
-		output_mode = 0;
-	}
-	return output_mode;
+  byte output_mode = mode + 1;
+  if (output_mode > 3) {
+    output_mode = 0;
+  }
+  return output_mode;
 }
 
 byte getMode(DateTime this_time) {
-  byte this_dayofweek = this_time.DayofWeek;
-  byte this_hour = this_time.hour;
+  byte this_dayofweek = this_time.dayOfTheWeek();
+  byte this_hour = this_time.hour();
   int computed_mode = 4;
 
   //Check schedule based on day of week.
@@ -197,5 +200,5 @@ float getTemperature() {
   int TemperatureSum = ((MSB << 8) | LSB) >> 4;
 
   float farenheit = (TemperatureSum * 0.1125) + 32;
-  return farenheit
+  return farenheit;
 }
