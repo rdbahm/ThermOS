@@ -73,11 +73,9 @@ void setup() {
 void loop() {
   byte current_mode = 0; //0 wake, 1 away, 2 return, 3 sleep.
   byte next_mode = 1;
-  boolean is_mode_preheat = false; //Set to true if we need to preheat the room to reach the temperature in time.
-  boolean is_mode_override = false; //Set to true if the mode has been overridden. (For future use: Button?)
-  int override_temp = 0; //Override temperatures take priority over mode until the next mode starts.
-  int target_temp = 70;
-  int last_target_temp = 70;
+  byte override_temp = 0; //Override temperatures take priority over mode until the next mode starts.
+  byte target_temp = 70;
+  byte last_target_temp = 70;
   float this_temp = 0;
   TimeSpan preheat_time = 0; //Time, in minutes, it will take to heat to the next mode.
   unsigned long int last_temp_update = 0;
@@ -92,27 +90,29 @@ void loop() {
       last_target_temp = target_temp;
 
       current_mode = getMode(now);
-      if (is_mode_preheat == true && current_mode == next_mode)
+      if (override_temp != 0 && current_mode == next_mode) //Check if we've switched modes, if so, reset override.
       {
-        //Disable preheat mode once we get to the mode we're preheating for.
-        is_mode_preheat = false;
+        //Undo the override temperature and go back to normal program.
+        override_temp = 0;
       }
-      next_mode = getNextMode(current_mode);
+      next_mode = getNextMode(current_mode); //Check the next mode now that we've checked if we've changed modes.
 
+      //Determine time (as a timespan) to preheat for the next mode.
       preheat_time = getTimeToHeat(getModeTemperature(next_mode), this_temp, degrees_per_minute);
-
-      if (getMode(now + preheat_time) != current_mode && is_mode_preheat == true) {
-        is_mode_preheat = true;
+      
+      if (getMode(now + preheat_time) != current_mode && override_temp == 0) {
+        //Checking if the mode when the preheat time has elapsed will be the next mode.
+        override_temp = getModeTemperature(next_mode);
       }
 
-      if (is_mode_preheat == true)
+      if (override_temp != 0)
       {
-        //If we're using the preheat function, get temperature from the next mode.
-        target_temp = getModeTemperature(next_mode);
+        //If we're using the override, use that temperature.
+        target_temp = override_temp;
       }
       else
       {
-        //This codepath is normal - occurs if we're within a mode.
+        //This codepath is normal - occurs if we're not overriding.
         target_temp = getModeTemperature(current_mode);
       }
 
