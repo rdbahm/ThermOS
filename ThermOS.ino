@@ -4,9 +4,16 @@
 //Requires RollingAverage library from www.github.com/rdbahm/rollingaverage
 
 #include <Wire.h>
-#include <Servo.h>
 #include "RTClib.h"
 #include <RollingAverage.h>
+
+/**** For trinket compatibility, we define both servo and softservo libraries. ****/
+#ifndef __AVR_ATtiny85__
+#include <Servo.h>
+#endif
+#ifdef __AVR_ATtiny85__
+#include <Adafruit_SoftServo.h>
+#endif
 
 /****** CONFIGURATION *******/
 
@@ -42,10 +49,16 @@ const int temp_update_interval = 6000; //How frequently to poll for new temperat
 const float degrees_per_minute = 0.25; //Hardcoded assumption about how fast we can heat a room. Used to calculate when to start heating for a mode change.
 
 /******* GLOBAL VARIABLES ******/
-Servo ControlServo; //Servo object
 RTC_DS1307 RTC;
 RollingAverage Temperature;
 
+//Create the servo object based on board type.
+#ifdef __AVR_ATtiny85__
+Adafruit_SoftServo ControlServo;
+#endif
+#ifndef __AVR_ATtiny85__
+Servo ControlServo; //Servo object
+#endif
 
 void setup() {
   ControlServo.attach(servo_pin);
