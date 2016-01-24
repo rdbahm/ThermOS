@@ -49,14 +49,15 @@ const int temp_update_interval = 6000; //How frequently to poll for new temperat
 const float degrees_per_minute = 0.25; //Hardcoded assumption about how fast we can heat a room. Used to calculate when to start heating for a mode change.
 
 /******* GLOBAL VARIABLES ******/
-RTC_DS1307 RTC;
+//RTC_DS1307 RTC;
 RollingAverage Temperature;
 
 //Create the servo object based on board type.
-#ifdef __AVR_ATtiny85__
+#ifdef __AVR_ATtiny85__ //Trinket
 Adafruit_SoftServo ControlServo;
 #endif
-#ifndef __AVR_ATtiny85__
+
+#ifndef __AVR_ATtiny85__ //Regular Arduino.
 Servo ControlServo; //Servo object
 #endif
 
@@ -64,6 +65,12 @@ void setup() {
   ControlServo.attach(servo_pin);
   Wire.begin();
   RTC.begin();
+
+#ifdef __AVR_ATtiny85__
+  //For softservo library. ATtiny85.
+  OCR0A = 0xAF;
+  TIMSK |= _BV(OCIE0A);
+#endif
 
 #ifdef debug
   Serial.begin(9600);
@@ -99,7 +106,7 @@ void loop() {
 
       //Determine time (as a timespan) to preheat for the next mode.
       preheat_time = getTimeToHeat(getModeTemperature(next_mode), this_temp, degrees_per_minute);
-      
+
       if (getMode(now + preheat_time) != current_mode && override_temp == 0) {
         //Checking if the mode when the preheat time has elapsed will be the next mode.
         override_temp = getModeTemperature(next_mode);
@@ -126,7 +133,7 @@ void loop() {
 
       //Output serial if we're debugging.
 #ifdef debug
-      Serial.print(now);
+      Serial.print(now.unixtime());
       Serial.print(",");
       Serial.print(current_mode);
       Serial.print(",");
@@ -137,10 +144,12 @@ void loop() {
 
     } //End of furnace update.
 
+    /**** Thermometer data collection ****/
     if ((millis() - last_temp_update) >= temp_update_interval) {
       last_temp_update = millis();
-      Temperature.add(getTemperature()); //Add the current temperature to our rolling average.
+      //Temperature.add(getTemperature()); //Add the current temperature to our rolling average.
     } //End of temperature update.
+
   } //End of program loop
 } //End of void loop
 
@@ -215,3 +224,17 @@ float getTemperature() {
   float farenheit = (TemperatureSum * 0.1125) + 32;
   return farenheit;
 }
+
+/**** ATtiny85 only - for SoftServo library ****/
+#ifdef __AVR_ATtiny85__
+volatile uint8_t counter = 0;
+SIGNAL(TIMER0_COMPA_vect) {
+  // this gets called every 2 milliseconds
+  counter += 2;
+  // every 20 milliseconds, refresh the servos!
+  if (counter >= 20) {
+    counter = 0;
+    myservo.refresh();
+  }
+}
+#endif
