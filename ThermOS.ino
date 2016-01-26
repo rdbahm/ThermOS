@@ -1,4 +1,6 @@
-//#define debug true
+#define enableserial
+//#define debug
+#define verbosity
 
 //Thermostat with RTC and Thermostat, both on I2C bus.
 //Requires RollingAverage library from www.github.com/rdbahm/rollingaverage
@@ -19,7 +21,7 @@
 
 //Hardware definitions
 const int i2c_address_thermometer = 0x48;
-const int servo_pin = 9;
+const int servo_pin = 1;
 
 //Temperature config
 const int temperatures[4] = {72, 65, 70, 68}; //Same order as "current_mode"
@@ -44,8 +46,8 @@ const int servo_limit_min = 0; //Physical limit for servo - these settings const
 const int servo_limit_max = 180;
 
 //Misc config
-const int furnace_update_interval = 60000; //Time in MS between evaluating if the furnace power should be toggled.
-const int temp_update_interval = 6000; //How frequently to poll for new temperatures.
+const long int furnace_update_interval = 60000; //Time in MS between evaluating if the furnace power should be toggled.
+const long int temp_update_interval = 6000; //How frequently to poll for new temperatures.
 const float degrees_per_minute = 0.25; //Hardcoded assumption about how fast we can heat a room. Used to calculate when to start heating for a mode change.
 
 /******* GLOBAL VARIABLES ******/
@@ -53,10 +55,11 @@ RTC_DS1307 RTC;
 RollingAverage Temperature;
 
 //Create the servo object based on board type.
-#ifdef __AVR_ATtiny85__
+#ifdef __AVR_ATtiny85__ //Trinket
 Adafruit_SoftServo ControlServo;
 #endif
-#ifndef __AVR_ATtiny85__
+
+#ifndef __AVR_ATtiny85__ //Regular Arduino.
 Servo ControlServo; //Servo object
 #endif
 
@@ -65,7 +68,13 @@ void setup() {
   Wire.begin();
   RTC.begin();
 
-#ifdef debug
+#ifdef __AVR_ATtiny85__
+  //For softservo library. ATtiny85.
+  OCR0A = 0xAF;
+  TIMSK |= _BV(OCIE0A);
+#endif
+
+#ifdef enableserial
   Serial.begin(9600);
 #endif
 }
@@ -73,18 +82,22 @@ void setup() {
 void loop() {
   byte current_mode = 0; //0 wake, 1 away, 2 return, 3 sleep.
   byte next_mode = 1;
-  boolean is_mode_preheat = false; //Set to true if we need to preheat the room to reach the temperature in time.
-  boolean is_mode_override = false; //Set to true if the mode has been overridden. (For future use: Button?)
-  int override_temp = 0; //Override temperatures take priority over mode until the next mode starts.
-  int target_temp = 70;
-  int last_target_temp = 70;
+  byte override_temp = 0; //Override temperatures take priority over mode until the next mode starts.
+  byte target_temp = 70;
+  byte last_target_temp = 70;
   float this_temp = 0;
   TimeSpan preheat_time = 0; //Time, in minutes, it will take to heat to the next mode.
   unsigned long int last_temp_update = 0;
   unsigned long int last_furnace_update = 0;
+  int last_servo_write = 0;
 
   while (true) {
     if ((millis() - last_furnace_update) >= furnace_update_interval) {
+#ifdef debug
+      Serial.print("Running furnance update. Execution was ");
+      Serial.print((millis() - last_furnace_update) - furnace_update_interval);
+      Serial.println("ms late.");
+#endif
       last_furnace_update = millis();
       this_temp = Temperature.read();
       DateTime now = RTC.now();
@@ -92,27 +105,30 @@ void loop() {
       last_target_temp = target_temp;
 
       current_mode = getMode(now);
-      if (is_mode_preheat == true && current_mode == next_mode)
+      if (override_temp != 0 && current_mode == next_mode) //Check if we've switched modes, if so, reset override.
       {
-        //Disable preheat mode once we get to the mode we're preheating for.
-        is_mode_preheat = false;
+        //Undo the override temperature and go back to normal program.
+        override_temp = 0;
       }
-      next_mode = getNextMode(current_mode);
+      next_mode = getNextMode(current_mode); //Check the next mode now that we've checked if we've changed modes.
+      //TODO: getNextMode will not work properly in a case where the next mode is disabled.
 
+      //Determine time (as a timespan) to preheat for the next mode.
       preheat_time = getTimeToHeat(getModeTemperature(next_mode), this_temp, degrees_per_minute);
 
-      if (getMode(now + preheat_time) != current_mode && is_mode_preheat == true) {
-        is_mode_preheat = true;
+      if (getMode(now + preheat_time) != current_mode && override_temp == 0) {
+        //Checking if the mode when the preheat time has elapsed will be the next mode.
+        override_temp = getModeTemperature(next_mode);
       }
 
-      if (is_mode_preheat == true)
+      if (override_temp != 0)
       {
-        //If we're using the preheat function, get temperature from the next mode.
-        target_temp = getModeTemperature(next_mode);
+        //If we're using the override, use that temperature.
+        target_temp = override_temp;
       }
       else
       {
-        //This codepath is normal - occurs if we're within a mode.
+        //This codepath is normal - occurs if we're not overriding.
         target_temp = getModeTemperature(current_mode);
       }
 
@@ -121,14 +137,16 @@ void loop() {
         //TODO: This is pretty naive. Should work in theory but because one of the major problems...
         //...with the knob-style thermostats is they're horrendously inconsistent, this will result...
         //...in horrendously inconsistent room temperatures.
-        setFurnace(target_temp);
+        last_servo_write = setFurnace(target_temp); //Set and record the new setting.
       }
 
-      //Output serial if we're debugging.
-#ifdef debug
-      Serial.print(now);
+      //Output serial if we're in verbose mode.
+#ifdef verbosity
+      Serial.print(now.unixtime());
       Serial.print(",");
       Serial.print(current_mode);
+      Serial.print(",");
+      Serial.print(last_servo_write);
       Serial.print(",");
       Serial.print(this_temp);
       Serial.print(",");
@@ -137,10 +155,17 @@ void loop() {
 
     } //End of furnace update.
 
+    /**** Thermometer data collection ****/
     if ((millis() - last_temp_update) >= temp_update_interval) {
+#ifdef debug
+      Serial.print("Running temperature update. Execution was ");
+      Serial.print((millis() - last_temp_update) - temp_update_interval);
+      Serial.println("ms late.");
+#endif
       last_temp_update = millis();
       Temperature.add(getTemperature()); //Add the current temperature to our rolling average.
     } //End of temperature update.
+
   } //End of program loop
 } //End of void loop
 
@@ -158,11 +183,12 @@ TimeSpan getTimeToHeat(int target, int current_temp, float heat_rate) {
   }
 }
 
-void setFurnace(int temperature) {
+int setFurnace(int temperature) {
   //Basically a euphemism for "use the servo."
   int computed_pos = map(temperature, servo_calib_min_temp, servo_calib_max_temp, servo_calib_min_pos, servo_calib_max_pos); //Maps temperature to appropriate position.
   computed_pos = constrain(computed_pos, servo_limit_min, servo_limit_max); //To prevent physical damage.
   ControlServo.write(computed_pos);
+  return computed_pos; //Return value in case we want to use that (mostly for debugging)
 }
 
 int getModeTemperature(int mode) {
@@ -215,3 +241,17 @@ float getTemperature() {
   float farenheit = (TemperatureSum * 0.1125) + 32;
   return farenheit;
 }
+
+/**** ATtiny85 only - for SoftServo library ****/
+#ifdef __AVR_ATtiny85__
+volatile uint8_t counter = 0;
+SIGNAL(TIMER0_COMPA_vect) {
+  // this gets called every 2 milliseconds
+  counter += 2;
+  // every 20 milliseconds, refresh the servos!
+  if (counter >= 20) {
+    counter = 0;
+    myservo.refresh();
+  }
+}
+#endif

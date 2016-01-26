@@ -1,7 +1,5 @@
 # ThermOS
-## Version 0.01
-### Yes, it's that unfinished.
-A simple thermostat program designed for use with knob-type thermostats.
+A simple thermostat program designed for use with knob-type thermostats. Requires an Arduino, a temperature sensor, and a servo output. (Currently, temperature sensor is only lightly used.)
 
 Features:
 - 7 day scheduling for 4 modes: awake, away, return, and sleep.
