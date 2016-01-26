@@ -1,4 +1,6 @@
-//#define debug true
+#define enableserial
+//#define debug
+#define verbosity
 
 //Thermostat with RTC and Thermostat, both on I2C bus.
 //Requires RollingAverage library from www.github.com/rdbahm/rollingaverage
@@ -19,7 +21,7 @@
 
 //Hardware definitions
 const int i2c_address_thermometer = 0x48;
-const int servo_pin = 9;
+const int servo_pin = 1;
 
 //Temperature config
 const int temperatures[4] = {72, 65, 70, 68}; //Same order as "current_mode"
@@ -44,12 +46,12 @@ const int servo_limit_min = 0; //Physical limit for servo - these settings const
 const int servo_limit_max = 180;
 
 //Misc config
-const int furnace_update_interval = 60000; //Time in MS between evaluating if the furnace power should be toggled.
-const int temp_update_interval = 6000; //How frequently to poll for new temperatures.
+const long int furnace_update_interval = 60000; //Time in MS between evaluating if the furnace power should be toggled.
+const long int temp_update_interval = 6000; //How frequently to poll for new temperatures.
 const float degrees_per_minute = 0.25; //Hardcoded assumption about how fast we can heat a room. Used to calculate when to start heating for a mode change.
 
 /******* GLOBAL VARIABLES ******/
-//RTC_DS1307 RTC;
+RTC_DS1307 RTC;
 RollingAverage Temperature;
 
 //Create the servo object based on board type.
@@ -72,7 +74,7 @@ void setup() {
   TIMSK |= _BV(OCIE0A);
 #endif
 
-#ifdef debug
+#ifdef enableserial
   Serial.begin(9600);
 #endif
 }
@@ -87,9 +89,15 @@ void loop() {
   TimeSpan preheat_time = 0; //Time, in minutes, it will take to heat to the next mode.
   unsigned long int last_temp_update = 0;
   unsigned long int last_furnace_update = 0;
+  int last_servo_write = 0;
 
   while (true) {
     if ((millis() - last_furnace_update) >= furnace_update_interval) {
+#ifdef debug
+      Serial.print("Running furnance update. Execution was ");
+      Serial.print((millis() - last_furnace_update) - furnace_update_interval);
+      Serial.println("ms late.");
+#endif
       last_furnace_update = millis();
       this_temp = Temperature.read();
       DateTime now = RTC.now();
@@ -103,6 +111,7 @@ void loop() {
         override_temp = 0;
       }
       next_mode = getNextMode(current_mode); //Check the next mode now that we've checked if we've changed modes.
+      //TODO: getNextMode will not work properly in a case where the next mode is disabled.
 
       //Determine time (as a timespan) to preheat for the next mode.
       preheat_time = getTimeToHeat(getModeTemperature(next_mode), this_temp, degrees_per_minute);
@@ -128,14 +137,16 @@ void loop() {
         //TODO: This is pretty naive. Should work in theory but because one of the major problems...
         //...with the knob-style thermostats is they're horrendously inconsistent, this will result...
         //...in horrendously inconsistent room temperatures.
-        setFurnace(target_temp);
+        last_servo_write = setFurnace(target_temp); //Set and record the new setting.
       }
 
-      //Output serial if we're debugging.
-#ifdef debug
+      //Output serial if we're in verbose mode.
+#ifdef verbosity
       Serial.print(now.unixtime());
       Serial.print(",");
       Serial.print(current_mode);
+      Serial.print(",");
+      Serial.print(last_servo_write);
       Serial.print(",");
       Serial.print(this_temp);
       Serial.print(",");
@@ -146,8 +157,13 @@ void loop() {
 
     /**** Thermometer data collection ****/
     if ((millis() - last_temp_update) >= temp_update_interval) {
+#ifdef debug
+      Serial.print("Running temperature update. Execution was ");
+      Serial.print((millis() - last_temp_update) - temp_update_interval);
+      Serial.println("ms late.");
+#endif
       last_temp_update = millis();
-      //Temperature.add(getTemperature()); //Add the current temperature to our rolling average.
+      Temperature.add(getTemperature()); //Add the current temperature to our rolling average.
     } //End of temperature update.
 
   } //End of program loop
@@ -167,11 +183,12 @@ TimeSpan getTimeToHeat(int target, int current_temp, float heat_rate) {
   }
 }
 
-void setFurnace(int temperature) {
+int setFurnace(int temperature) {
   //Basically a euphemism for "use the servo."
   int computed_pos = map(temperature, servo_calib_min_temp, servo_calib_max_temp, servo_calib_min_pos, servo_calib_max_pos); //Maps temperature to appropriate position.
   computed_pos = constrain(computed_pos, servo_limit_min, servo_limit_max); //To prevent physical damage.
   ControlServo.write(computed_pos);
+  return computed_pos; //Return value in case we want to use that (mostly for debugging)
 }
 
 int getModeTemperature(int mode) {
