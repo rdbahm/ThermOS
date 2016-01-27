@@ -22,7 +22,7 @@
 
 //Hardware definitions
 const int i2c_address_thermometer = 0x48;
-const int servo_pin = 1;
+const int servo_pin = 2; //Can't use 0 or 1 at the same time as serial.
 
 //Temperature config
 const int temperatures[4] = {72, 65, 70, 68}; //Same order as "current_mode"
