@@ -26,8 +26,6 @@ const int servo_pin = 1;
 
 //Temperature config
 const int temperatures[4] = {72, 65, 70, 68}; //Same order as "current_mode"
-const int temperature_threshold = 2; //Temperature difference from target temp to activate heater, F.
-const int temperature_overshoot = 1; //How much to overshoot the temperature when heating.
 
 //Scheduling config
 //Sunday = 0
