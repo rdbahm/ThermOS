@@ -1,3 +1,5 @@
+#include <SoftwareSerial.h>
+
 #define enableserial
 //#define debug
 #define verbosity
@@ -24,7 +26,7 @@
 const int i2c_address_thermometer = 0x48;
 const int servo_pin = 1;
 
-//Temperature config
+//Temperature confi
 const int temperatures[4] = {72, 65, 70, 68}; //Same order as "current_mode"
 const int temperature_threshold = 2; //Temperature difference from target temp to activate heater, F.
 const int temperature_overshoot = 1; //How much to overshoot the temperature when heating.
@@ -106,11 +108,11 @@ void loop() {
       last_target_temp = target_temp;
 
       current_mode = getMode(now);
-      if (override_temp != 0 && current_mode == next_mode) //Check if we've switched modes, if so, reset override.
-      {
+      if (override_temp != 0 && current_mode == next_mode) { //Check if we've switched modes, if so, reset override.
         //Undo the override temperature and go back to normal program.
         override_temp = 0;
       }
+      
       next_mode = getNextMode(current_mode); //Check the next mode now that we've checked if we've changed modes.
       //TODO: getNextMode will not work properly in a case where the next mode is disabled.
 
@@ -122,22 +124,19 @@ void loop() {
         override_temp = getModeTemperature(next_mode);
       }
 
-      if (override_temp != 0)
-      {
+      if (override_temp != 0) {
         //If we're using the override, use that temperature.
         target_temp = override_temp;
       }
-      else
-      {
+      else {
         //This codepath is normal - occurs if we're not overriding.
         target_temp = getModeTemperature(current_mode);
       }
 
-      if (target_temp != last_target_temp)
-      {
-        //TODO: This is pretty naive. Should work in theory but because one of the major problems...
-        //...with the knob-style thermostats is they're horrendously inconsistent, this will result...
-        //...in horrendously inconsistent room temperatures.
+      if (target_temp != last_target_temp) {
+        //TODO: This is pretty naive. Should work in theory but because one of the major problems
+        //with the knob-style thermostats is they're horrendously inconsistent, this will result
+        //in horrendously inconsistent room temperatures.
         last_servo_write = setFurnace(target_temp); //Set and record the new setting.
       }
 
@@ -222,8 +221,7 @@ byte getMode(DateTime this_time) {
   else if (this_hour >= sch_away[this_dayofweek] && sch_away[this_dayofweek] != -1) {
     computed_mode = 0;
   }
-  else
-  {
+  else {
     computed_mode = 3; //Sleep mode if nothing else fits.
   }
 
