@@ -93,6 +93,7 @@ void loop() {
   unsigned long int last_temp_update = 0;
   unsigned long int last_furnace_update = 0;
   int last_servo_write = 0;
+  bool skipped_mode = false;
 
   while (true) {
     if ((millis() - last_furnace_update) >= furnace_update_interval) {
@@ -113,7 +114,8 @@ void loop() {
         override_temp = 0;
       }
       
-      next_mode = getNextMode(current_mode); //Check the next mode now that we've checked if we've changed modes.
+      skipped_mode = getModeSkipped(current_mode, now);
+      next_mode = getNextMode(current_mode, skipped_mode); //Check the next mode now that we've checked if we've changed modes.
       //TODO: getNextMode will not work properly in a case where the next mode is disabled.
 
       //Determine time (as a timespan) to preheat for the next mode.
@@ -127,8 +129,7 @@ void loop() {
       if (override_temp != 0) {
         //If we're using the override, use that temperature.
         target_temp = override_temp;
-      }
-      else {
+      } else {
         //This codepath is normal - occurs if we're not overriding.
         target_temp = getModeTemperature(current_mode);
       }
@@ -175,8 +176,7 @@ TimeSpan getTimeToHeat(int target, int current_temp, float heat_rate) {
   int temperature_difference = target - current_temp;
   if (temperature_difference <= 0) {
     return 0;
-  }
-  else {
+  } else {
     int minutes = temperature_difference / heat_rate;
     TimeSpan timespan_output = TimeSpan(0, 0, minutes, 0);
     return timespan_output;
@@ -195,12 +195,33 @@ int getModeTemperature(int mode) {
   return temperatures[mode];
 }
 
-byte getNextMode(byte mode) {
-  byte output_mode = mode + 1;
-  if (output_mode > 3) {
-    output_mode = 0;
+byte getNextMode(byte mode, bool skippedMode) {
+  byte add_for_skipped = 0;
+  if (skippedMode) {
+    add_for_skipped = 1;
   }
+
+  byte output_mode = (mode + 1 + add_for_skipped) % 4;
   return output_mode;
+}
+
+byte getModeSkipped(byte mode, DateTime this_time) {
+  byte this_dayofweek = this_time.dayOfTheWeek();
+  byte this_hour = this_time.hour();
+  bool skippedMode = false;
+
+  //Check schedule based on day of week.
+  if (this_hour >= sch_sleep[this_dayofweek] && sch_sleep[this_dayofweek] == -1) {
+    skippedMode = true;
+  } else if (this_hour >= sch_return[this_dayofweek] && sch_return[this_dayofweek] == -1) {
+    skippedMode = true;
+  } else if (this_hour >= sch_away[this_dayofweek] && sch_away[this_dayofweek] == -1) {
+    skippedMode = true;
+  } else if (this_hour >= sch_wake[this_dayofweek] && sch_wake[this_dayofweek] == -1) {
+    skippedMode = true;
+  }
+
+  return skippedMode;
 }
 
 byte getMode(DateTime this_time) {
@@ -211,17 +232,13 @@ byte getMode(DateTime this_time) {
   //Check schedule based on day of week.
   if (this_hour >= sch_sleep[this_dayofweek] && sch_sleep[this_dayofweek] != -1) {
     computed_mode = 3; //If hour is after sleep schedule, go to sleep mode (3)
-  }
-  else if (this_hour >= sch_return[this_dayofweek] && sch_return[this_dayofweek] != -1) {
+  } else if (this_hour >= sch_return[this_dayofweek] && sch_return[this_dayofweek] != -1) {
     computed_mode = 2;
-  }
-  else if (this_hour >= sch_away[this_dayofweek] && sch_away[this_dayofweek] != -1) {
+  } else if (this_hour >= sch_away[this_dayofweek] && sch_away[this_dayofweek] != -1) {
     computed_mode = 1;
-  }
-  else if (this_hour >= sch_away[this_dayofweek] && sch_away[this_dayofweek] != -1) {
+  } else if (this_hour >= sch_wake[this_dayofweek] && sch_wake[this_dayofweek] != -1) {
     computed_mode = 0;
-  }
-  else {
+  } else {
     computed_mode = 3; //Sleep mode if nothing else fits.
   }
 
