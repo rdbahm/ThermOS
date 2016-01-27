@@ -4,9 +4,10 @@
 
 //Thermostat with RTC and Thermostat, both on I2C bus.
 //Requires RollingAverage library from www.github.com/rdbahm/rollingaverage
+//Requires RTClib library from https://github.com/adafruit/RTClib
 
 #include <Wire.h>
-#include "RTClib.h"
+#include <RTClib.h>
 #include <RollingAverage.h>
 
 /**** For trinket compatibility, we define both servo and softservo libraries. ****/
@@ -49,6 +50,7 @@ const int servo_limit_max = 180;
 const long int furnace_update_interval = 60000; //Time in MS between evaluating if the furnace power should be toggled.
 const long int temp_update_interval = 6000; //How frequently to poll for new temperatures.
 const float degrees_per_minute = 0.25; //Hardcoded assumption about how fast we can heat a room. Used to calculate when to start heating for a mode change.
+const float degrees_per_minute = 0.06; //Hardcoded assumption about how fast we can heat a room. Used to calculate when to start heating for a mode change.
 
 /******* GLOBAL VARIABLES ******/
 RTC_DS1307 RTC;
