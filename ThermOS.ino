@@ -49,7 +49,6 @@ const int servo_limit_max = 180;
 //Misc config
 const long int furnace_update_interval = 60000; //Time in MS between evaluating if the furnace power should be toggled.
 const long int temp_update_interval = 6000; //How frequently to poll for new temperatures.
-const float degrees_per_minute = 0.25; //Hardcoded assumption about how fast we can heat a room. Used to calculate when to start heating for a mode change.
 const float degrees_per_minute = 0.06; //Hardcoded assumption about how fast we can heat a room. Used to calculate when to start heating for a mode change.
 
 /******* GLOBAL VARIABLES ******/
