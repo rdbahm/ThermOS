@@ -48,12 +48,14 @@ const int servo_limit_max = 180;
 
 //Misc config
 const long int furnace_update_interval = 60000; //Time in MS between evaluating if the furnace power should be toggled.
-const long int temp_update_interval = 6000; //How frequently to poll for new temperatures.
+const long int temp_update_interval = 12000; //How frequently to poll for new temperatures.
+const long int long_term_temp_interval = 720000; //How frequently to sample for long term temperature average.
 const float degrees_per_minute = 0.06; //Hardcoded assumption about how fast we can heat a room. Used to calculate when to start heating for a mode change.
 
 /******* GLOBAL VARIABLES ******/
 RTC_DS1307 RTC;
-RollingAverage Temperature;
+RollingAverage InstantTemperature;
+RollingAverage LongTermTemperature;
 
 //Create the servo object based on board type.
 #ifdef __AVR_ATtiny85__ //Trinket
@@ -78,6 +80,10 @@ void setup() {
 #ifdef enableserial
   Serial.begin(9600);
 #endif
+
+/*** Initial readings for rolling averages. ***/
+InstantTemperature.add(getTemperature());
+LongTermTemperature.add(InstantTemperature.read());
 }
 
 void loop() {
@@ -89,6 +95,7 @@ void loop() {
   float this_temp = 0;
   TimeSpan preheat_time = 0; //Time, in minutes, it will take to heat to the next mode.
   unsigned long int last_temp_update = 0;
+  unsigned long int last_long_term_temp_update = 0;
   unsigned long int last_furnace_update = 0;
   int last_servo_write = 0;
   bool skipped_mode = false;
@@ -96,12 +103,12 @@ void loop() {
   while (true) {
     if ((millis() - last_furnace_update) >= furnace_update_interval) {
 #ifdef debug
-      Serial.print("Running furnance update. Execution was ");
+      Serial.print("Running furnace update. Execution was ");
       Serial.print((millis() - last_furnace_update) - furnace_update_interval);
       Serial.println("ms late.");
 #endif
       last_furnace_update = millis();
-      this_temp = Temperature.read();
+      this_temp = InstantTemperature.read();
       DateTime now = RTC.now();
 
       last_target_temp = target_temp;
@@ -141,6 +148,7 @@ void loop() {
 
       //Output serial if we're in verbose mode.
 #ifdef verbosity
+      float long_term_temp = LongTermTemperature.read();
       Serial.print(now.unixtime());
       Serial.print(",");
       Serial.print(current_mode);
@@ -148,6 +156,8 @@ void loop() {
       Serial.print(last_servo_write);
       Serial.print(",");
       Serial.print(this_temp);
+      Serial.print(",");
+      Serial.print(long_term_temp);
       Serial.print(",");
       Serial.println(target_temp);
 #endif
@@ -162,7 +172,18 @@ void loop() {
       Serial.println("ms late.");
 #endif
       last_temp_update = millis();
-      Temperature.add(getTemperature()); //Add the current temperature to our rolling average.
+      InstantTemperature.add(getTemperature()); //Add the current temperature to our rolling average.
+    } //End of temperature update.
+	
+    /**** Long-term temperature collection ****/
+    if ((millis() - last_long_term_temp_update) >= long_term_temp_interval) {
+#ifdef debug
+      Serial.print("Running long-term temperature update. Execution was ");
+      Serial.print((millis() - last_long_term_temp_update) - long_term_temp_interval);
+      Serial.println("ms late.");
+#endif
+      last_long_term_temp_update = millis();
+      LongTermTemperature.add(InstantTemperature.read()); //Add the current temperature to our rolling average.
     } //End of temperature update.
 
   } //End of program loop
